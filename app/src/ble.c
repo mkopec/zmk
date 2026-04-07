@@ -223,6 +223,48 @@ static void update_advertising_callback(struct k_work *work) { update_advertisin
 
 K_WORK_DEFINE(update_advertising_work, update_advertising_callback);
 
+/* BLE broadcast (non-connectable advertisement) support */
+
+static uint8_t broadcast_mfr_buf[29]; /* 31 byte AD max - 2 byte type/len overhead */
+static struct bt_data broadcast_ad[1];
+
+static void broadcast_stop_work_fn(struct k_work *work) {
+    bt_le_adv_stop();
+    update_advertising();
+}
+
+K_WORK_DELAYABLE_DEFINE(broadcast_stop_work, broadcast_stop_work_fn);
+
+int zmk_ble_broadcast_adv(const uint8_t *mfr_data, size_t len, uint32_t duration_ms) {
+    if (len > sizeof(broadcast_mfr_buf)) {
+        LOG_ERR("Broadcast mfr data too long (%zu > %zu)", len, sizeof(broadcast_mfr_buf));
+        return -EINVAL;
+    }
+
+    k_work_cancel_delayable(&broadcast_stop_work);
+
+    bt_le_adv_stop();
+    advertising_status = ZMK_ADV_NONE;
+
+    memcpy(broadcast_mfr_buf, mfr_data, len);
+    broadcast_ad[0].type = BT_DATA_MANUFACTURER_DATA;
+    broadcast_ad[0].data_len = (uint8_t)len;
+    broadcast_ad[0].data = broadcast_mfr_buf;
+
+    int err = bt_le_adv_start(
+        BT_LE_ADV_PARAM(BT_LE_ADV_OPT_NONE, BT_GAP_ADV_FAST_INT_MIN_2,
+                        BT_GAP_ADV_FAST_INT_MAX_2, NULL),
+        broadcast_ad, ARRAY_SIZE(broadcast_ad), NULL, 0);
+    if (err) {
+        LOG_ERR("Broadcast advertising failed to start (err %d)", err);
+        update_advertising();
+        return err;
+    }
+
+    k_work_schedule(&broadcast_stop_work, K_MSEC(duration_ms));
+    return 0;
+}
+
 static void clear_profile_bond(uint8_t profile) {
     if (bt_addr_le_cmp(&profiles[profile].peer, BT_ADDR_LE_ANY)) {
         bt_unpair(BT_ID_DEFAULT, &profiles[profile].peer);

@@ -1,0 +1,8 @@
+# Copyright (c) 2024 The ZMK Contributors
+# SPDX-License-Identifier: MIT
+
+description: BLE broadcast display toggle behavior
+
+compatible: "zmk,behavior-disp-toggle"
+
+include: zero_param.yaml

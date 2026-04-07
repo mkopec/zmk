@@ -55,6 +55,9 @@ static int on_keymap_binding_pressed(struct zmk_behavior_binding *binding,
 
 static const struct behavior_driver_api behavior_disp_toggle_driver_api = {
     .binding_pressed = on_keymap_binding_pressed,
+#if IS_ENABLED(CONFIG_ZMK_BEHAVIOR_METADATA)
+    .get_parameter_metadata = zmk_behavior_get_empty_param_metadata,
+#endif
 };
 
 BEHAVIOR_DT_INST_DEFINE(0, NULL, NULL, NULL, NULL, POST_KERNEL,

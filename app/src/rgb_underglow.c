@@ -66,6 +66,9 @@ static struct led_rgb pixels[STRIP_NUM_PIXELS];
 
 static struct rgb_underglow_state state;
 
+static bool underglow_override_active = false;
+static struct zmk_led_hsb underglow_override_color;
+
 #if IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW_EXT_POWER)
 static const struct device *const ext_power = DEVICE_DT_GET(DT_INST(0, zmk_ext_power_generic));
 #endif
@@ -176,19 +179,25 @@ static void zmk_rgb_underglow_effect_swirl(void) {
 }
 
 static void zmk_rgb_underglow_tick(struct k_work *work) {
-    switch (state.current_effect) {
-    case UNDERGLOW_EFFECT_SOLID:
-        zmk_rgb_underglow_effect_solid();
-        break;
-    case UNDERGLOW_EFFECT_BREATHE:
-        zmk_rgb_underglow_effect_breathe();
-        break;
-    case UNDERGLOW_EFFECT_SPECTRUM:
-        zmk_rgb_underglow_effect_spectrum();
-        break;
-    case UNDERGLOW_EFFECT_SWIRL:
-        zmk_rgb_underglow_effect_swirl();
-        break;
+    if (underglow_override_active) {
+        for (int i = 0; i < STRIP_NUM_PIXELS; i++) {
+            pixels[i] = hsb_to_rgb(hsb_scale_min_max(underglow_override_color));
+        }
+    } else {
+        switch (state.current_effect) {
+        case UNDERGLOW_EFFECT_SOLID:
+            zmk_rgb_underglow_effect_solid();
+            break;
+        case UNDERGLOW_EFFECT_BREATHE:
+            zmk_rgb_underglow_effect_breathe();
+            break;
+        case UNDERGLOW_EFFECT_SPECTRUM:
+            zmk_rgb_underglow_effect_spectrum();
+            break;
+        case UNDERGLOW_EFFECT_SWIRL:
+            zmk_rgb_underglow_effect_swirl();
+            break;
+        }
     }
 
     int err = led_strip_update_rgb(led_strip, pixels, STRIP_NUM_PIXELS);
@@ -200,7 +209,7 @@ static void zmk_rgb_underglow_tick(struct k_work *work) {
 K_WORK_DEFINE(underglow_tick_work, zmk_rgb_underglow_tick);
 
 static void zmk_rgb_underglow_tick_handler(struct k_timer *timer) {
-    if (!state.on) {
+    if (!state.on && !underglow_override_active) {
         return;
     }
 
@@ -519,5 +528,52 @@ ZMK_SUBSCRIPTION(rgb_underglow, zmk_activity_state_changed);
 #if IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW_AUTO_OFF_USB)
 ZMK_SUBSCRIPTION(rgb_underglow, zmk_usb_conn_state_changed);
 #endif
+
+int zmk_rgb_underglow_set_override(struct zmk_led_hsb color) {
+    if (!led_strip)
+        return -ENODEV;
+
+    underglow_override_color = color;
+    if (!underglow_override_active) {
+        underglow_override_active = true;
+        if (!state.on) {
+#if IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW_EXT_POWER)
+            if (ext_power != NULL) {
+                int rc = ext_power_enable(ext_power);
+                if (rc != 0) {
+                    LOG_ERR("Unable to enable EXT_POWER: %d", rc);
+                }
+            }
+#endif
+            k_timer_start(&underglow_tick, K_NO_WAIT, K_MSEC(50));
+        }
+    }
+
+    return 0;
+}
+
+int zmk_rgb_underglow_clear_override(void) {
+    if (!led_strip)
+        return -ENODEV;
+
+    if (!underglow_override_active) {
+        return 0;
+    }
+    underglow_override_active = false;
+    if (!state.on) {
+        k_timer_stop(&underglow_tick);
+        k_work_submit_to_queue(zmk_workqueue_lowprio_work_q(), &underglow_off_work);
+#if IS_ENABLED(CONFIG_ZMK_RGB_UNDERGLOW_EXT_POWER)
+        if (ext_power != NULL) {
+            int rc = ext_power_disable(ext_power);
+            if (rc != 0) {
+                LOG_ERR("Unable to disable EXT_POWER: %d", rc);
+            }
+        }
+#endif
+    }
+
+    return 0;
+}
 
 SYS_INIT(zmk_rgb_underglow_init, APPLICATION, CONFIG_APPLICATION_INIT_PRIORITY);

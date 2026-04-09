@@ -2,3 +2,4 @@
 # SPDX-License-Identifier: MIT
 
 rsource "Kconfig.indicator_leds"
+rsource "Kconfig.underglow_indicator"

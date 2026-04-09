@@ -1,0 +1,29 @@
+# Copyright (c) 2026 The ZMK Contributors
+# SPDX-License-Identifier: MIT
+
+config ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR
+    bool "RGB underglow caps lock color indicator"
+    depends on ZMK_RGB_UNDERGLOW
+    select ZMK_HID_INDICATORS
+    help
+      Changes the RGB underglow to a solid color while caps lock is active,
+      restoring the previous underglow state when deactivated.
+
+if ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR
+
+config ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR_HUE
+    int "Caps lock indicator hue in degrees"
+    default 0
+    range 0 359
+
+config ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR_SAT
+    int "Caps lock indicator saturation in percent"
+    default 100
+    range 0 100
+
+config ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR_BRT
+    int "Caps lock indicator brightness in percent"
+    default 100
+    range 0 100
+
+endif # ZMK_UNDERGLOW_CAPS_LOCK_INDICATOR

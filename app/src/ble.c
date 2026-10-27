@@ -36,6 +36,7 @@ LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 #include <zmk/split/bluetooth/uuid.h>
 #include <zmk/event_manager.h>
 #include <zmk/events/ble_active_profile_changed.h>
+#include <zmk/events/position_state_changed.h>
 
 #if IS_ENABLED(CONFIG_ZMK_BLE_PASSKEY_ENTRY)
 #include <zmk/events/keycode_state_changed.h>
@@ -174,6 +175,9 @@ bool zmk_ble_profile_is_connected(uint8_t index) {
     }                                                                                              \
     advertising_status = ZMK_ADV_CONN;
 
+/* The host of the active profile powered off, wait for a key press */
+static bool host_powered_off;
+
 int update_advertising(void) {
     int err = 0;
     bt_addr_le_t *addr;
@@ -182,6 +186,8 @@ int update_advertising(void) {
 
     if (zmk_ble_active_profile_is_open()) {
         desired_adv = ZMK_ADV_CONN;
+    } else if (host_powered_off) {
+        LOG_DBG("Host powered off, waiting for a key press");
     } else if (!zmk_ble_active_profile_is_connected()) {
         desired_adv = ZMK_ADV_CONN;
         // Need to fix directed advertising for privacy centrals. See
@@ -295,6 +301,7 @@ int zmk_ble_prof_select(uint8_t index) {
     }
 
     active_profile = index;
+    host_powered_off = false;
     ble_save_profile();
 
     update_advertising();
@@ -520,6 +527,10 @@ static void connected(struct bt_conn *conn, uint8_t err) {
 
     LOG_DBG("Connected %s", addr);
 
+    if (is_conn_active_profile(conn)) {
+        host_powered_off = false;
+    }
+
     update_advertising();
 
     if (is_conn_active_profile(conn)) {
@@ -541,6 +552,12 @@ static void disconnected(struct bt_conn *conn, uint8_t reason) {
     if (info.role != BT_CONN_ROLE_PERIPHERAL) {
         LOG_DBG("SKIPPING FOR ROLE %d", info.role);
         return;
+    }
+
+    if (IS_ENABLED(CONFIG_ZMK_BLE_WAKE_HOST_ON_KEY_PRESS) && is_conn_active_profile(conn) &&
+        reason == BT_HCI_ERR_REMOTE_POWER_OFF) {
+        LOG_DBG("Host powered off");
+        host_powered_off = true;
     }
 
     // We need to do this in a work callback, otherwise the advertising update will still see the
@@ -830,5 +847,22 @@ static int zmk_ble_listener(const zmk_event_t *eh) {
 ZMK_LISTENER(zmk_ble, zmk_ble_listener);
 ZMK_SUBSCRIPTION(zmk_ble, zmk_keycode_state_changed);
 #endif /* IS_ENABLED(CONFIG_ZMK_BLE_PASSKEY_ENTRY) */
+
+#if IS_ENABLED(CONFIG_ZMK_BLE_WAKE_HOST_ON_KEY_PRESS)
+static int zmk_ble_wake_listener(const zmk_event_t *eh) {
+    const struct zmk_position_state_changed *ev = as_zmk_position_state_changed(eh);
+
+    if (ev && ev->state && host_powered_off) {
+        LOG_DBG("Key pressed, advertising to wake the host");
+        host_powered_off = false;
+        k_work_submit(&update_advertising_work);
+    }
+
+    return ZMK_EV_EVENT_BUBBLE;
+}
+
+ZMK_LISTENER(zmk_ble_wake, zmk_ble_wake_listener);
+ZMK_SUBSCRIPTION(zmk_ble_wake, zmk_position_state_changed);
+#endif /* IS_ENABLED(CONFIG_ZMK_BLE_WAKE_HOST_ON_KEY_PRESS) */
 
 SYS_INIT(zmk_ble_init, APPLICATION, CONFIG_ZMK_BLE_INIT_PRIORITY);

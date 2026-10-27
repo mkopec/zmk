@@ -171,6 +171,14 @@ menuconfig ZMK_BLE
 
 if ZMK_BLE
 
+config ZMK_BLE_WAKE_HOST_ON_KEY_PRESS
+    bool "Wait for a key press before advertising to a host that powered off"
+    help
+      When the host of the active profile disconnects because it powers off,
+      as Linux does before suspending, advertise again only once a key is
+      pressed. A host that may be woken by the keyboard is then woken by
+      the first key press, not right away by the advertising.
+
 config ZMK_BLE_EXPERIMENTAL_CONN
     bool "Experimental BLE connection changes"
     help
